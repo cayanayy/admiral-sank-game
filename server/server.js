@@ -19,13 +19,19 @@ app.use((req, res, next) => {
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? 'https://your-production-domain.com'  // Replace with your frontend domain
-    : 'http://localhost:5173', // Development frontend URL
+    : true, // Allow all origins in development
   methods: ['GET', 'POST'],
   credentials: true
 }));
 
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ 
+  server,
+  // Allow connections from any origin in development
+  verifyClient: process.env.NODE_ENV !== 'production'
+    ? () => true
+    : undefined
+});
 
 // Store active users and game sessions
 const activeUsers = new Map(); // username -> ws
