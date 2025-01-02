@@ -9,6 +9,6 @@ export default defineConfig({
     port: 5173
   },
   define: {
-    'import.meta.env.VITE_WS_URL': JSON.stringify('ws://resolved-albacore-illegally.ngrok-free.app/ws')
+    'import.meta.env.VITE_WS_URL': JSON.stringify('wss://resolved-albacore-illegally.ngrok-free.app/ws')
   }
 })
