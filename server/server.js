@@ -93,6 +93,44 @@ const broadcastLobbyState = () => {
   });
 };
 
+// Check if a specific ship is sunk
+const isShipSunk = (board, shipId) => {
+  for (let row of board) {
+    for (let cell of row) {
+      if (cell.shipId === shipId && !cell.isHit) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
+// Get newly sunk ships
+const getNewlySunkShips = (board, oldBoard) => {
+  const sunkShips = new Set();
+  const shipIds = new Set();
+  
+  // Collect all ship IDs
+  board.forEach(row => {
+    row.forEach(cell => {
+      if (cell.shipId) {
+        shipIds.add(cell.shipId);
+      }
+    });
+  });
+
+  // Check which ships are newly sunk
+  shipIds.forEach(shipId => {
+    const wasSunkBefore = isShipSunk(oldBoard, shipId);
+    const isSunkNow = isShipSunk(board, shipId);
+    if (!wasSunkBefore && isSunkNow) {
+      sunkShips.add(shipId);
+    }
+  });
+
+  return Array.from(sunkShips);
+};
+
 // Handle WebSocket connections
 wss.on('connection', (ws) => {
   let username = null;
@@ -200,7 +238,18 @@ wss.on('connection', (ws) => {
           const isPlayer1 = username === session.player1.username;
           if (session.gameState.currentTurn === (isPlayer1 ? 'player1' : 'player2')) {
             const targetBoard = isPlayer1 ? 'player2Board' : 'player1Board';
+            const oldBoard = session.gameState[targetBoard];
             session.gameState[targetBoard] = data.board;
+
+            // Check if the move was a hit by comparing the new board with the old board
+            const wasHit = data.board.some((row, x) => 
+              row.some((cell, y) => 
+                cell.isHit && !oldBoard[x][y].isHit && cell.isShip
+              )
+            );
+
+            // Get newly sunk ships
+            const newlySunkShips = getNewlySunkShips(data.board, oldBoard);
 
             // Check for winner
             const player1Won = areAllShipsSunk(session.gameState.player2Board);
@@ -210,14 +259,17 @@ wss.on('connection', (ws) => {
               session.gameState.winner = player1Won ? 'player1' : 'player2';
               session.gameState.gameEnded = true;
             } else {
-              // If no winner yet, switch turns
-              session.gameState.currentTurn = isPlayer1 ? 'player2' : 'player1';
+              // Only switch turns if it wasn't a hit
+              if (!wasHit) {
+                session.gameState.currentTurn = isPlayer1 ? 'player2' : 'player1';
+              }
             }
 
             // Notify both players
             const gameUpdate = {
               type: 'game_update',
-              gameState: session.gameState
+              gameState: session.gameState,
+              newlySunkShips: newlySunkShips
             };
             
             session.player1.ws.send(JSON.stringify(gameUpdate));

@@ -14,6 +14,12 @@ import {
   useColorMode,
   IconButton,
   Flex,
+  Table,
+  Thead,
+  Tr,
+  Th,
+  Tbody,
+  Td,
 } from '@chakra-ui/react'
 import { keyframes } from '@emotion/react'
 import { MoonIcon, SunIcon } from '@chakra-ui/icons'
@@ -136,6 +142,7 @@ export const GameBoard: React.FC = () => {
   const [draggedShip, setDraggedShip] = useState<typeof SHIPS[0] | null>(null)
   const [placedShips, setPlacedShips] = useState<number[]>([])
   const [touchStartCoords, setTouchStartCoords] = useState<{ x: number, y: number } | null>(null);
+  const [sunkShips, setSunkShips] = useState<number[]>([]);
 
   const { 
     username,
@@ -161,19 +168,19 @@ export const GameBoard: React.FC = () => {
     );
   };
 
-  // Add initial game state log
-  useEffect(() => {
-    if (gameState) {
-      logGameAction('Game State', {
-        username,
-        playerId,
-        opponent,
-        isPlacingShips: gameState.isPlacingShips,
-        gameStarted: gameState.gameStarted,
-        currentTurn: gameState.currentTurn
-      });
-    }
-  }, [gameState?.gameStarted, gameState?.currentTurn, opponent]);
+  // // Add initial game state log
+  // useEffect(() => {
+  //   if (gameState) {
+  //     logGameAction('Game State', {
+  //       username,
+  //       playerId,
+  //       opponent,
+  //       isPlacingShips: gameState.isPlacingShips,
+  //       gameStarted: gameState.gameStarted,
+  //       currentTurn: gameState.currentTurn
+  //     });
+  //   }
+  // }, [gameState?.gameStarted, gameState?.currentTurn, opponent]);
 
   // Reset ship placement when game restarts
   useEffect(() => {
@@ -232,6 +239,30 @@ export const GameBoard: React.FC = () => {
     }
   }, [hasFinishedPlacing, opponentFinishedPlacing, gameState?.gameStarted]);
 
+  // Add effect to track sunk ships
+  useEffect(() => {
+    if (gameState?.gameStarted && !gameState.isPlacingShips) {
+      const targetBoard = playerId === 'player1' ? gameState.player2Board : gameState.player1Board;
+      const newSunkShips = SHIPS.filter(ship => {
+        return targetBoard.every(row =>
+          row.every(cell =>
+            cell.shipId !== ship.id || (cell.shipId === ship.id && cell.isHit)
+          )
+        );
+      }).map(ship => ship.id);
+      setSunkShips(newSunkShips);
+    } else {
+      setSunkShips([]);
+    }
+  }, [gameState?.player1Board, gameState?.player2Board]);
+
+  // Reset sunk ships when game restarts
+  useEffect(() => {
+    if (gameState?.isPlacingShips && !gameState.gameStarted) {
+      setSunkShips([]);
+    }
+  }, [gameState?.isPlacingShips, gameState?.gameStarted]);
+
   const handleCellClick = (x: number, y: number) => {
     // During ship placement phase
     if (gameState?.isPlacingShips) {
@@ -289,12 +320,12 @@ export const GameBoard: React.FC = () => {
         return;
       }
 
-      logGameAction('Placing Ship', {
-        ship: draggedShip.name,
-        position: { x, y },
-        orientation: selectedOrientation,
-        playerId
-      });
+      // logGameAction('Placing Ship', {
+      //   ship: draggedShip.name,
+      //   position: { x, y },
+      //   orientation: selectedOrientation,
+      //   playerId
+      // });
 
       const currentBoard = playerId === 'player1' ? gameState.player1Board : gameState.player2Board;
       const newBoard = currentBoard.map(row => row.map(cell => ({ ...cell })));
@@ -332,14 +363,25 @@ export const GameBoard: React.FC = () => {
         return;
       }
       
-      logGameAction('Attack Move', {
-        position: { x, y },
-        playerId,
-        target: opponent
-      });
+      // logGameAction('Attack Move', {
+      //   position: { x, y },
+      //   playerId,
+      //   target: opponent
+      // });
       
+      const isHit = newBoard[x][y].isShip;
       newBoard[x][y] = { ...newBoard[x][y], isHit: true };
       makeMove(newBoard);
+
+      if (isHit) {
+        toast({
+          title: 'Direct Hit! 🎯',
+          description: 'You hit a ship! Take another shot!',
+          status: 'success',
+          duration: 2000,
+          isClosable: true,
+        });
+      }
     } else if (gameState?.gameStarted) {
       toast({
         title: 'Not your turn',
@@ -407,11 +449,11 @@ export const GameBoard: React.FC = () => {
 
   const toggleOrientation = () => {
     const newOrientation = selectedOrientation === 'horizontal' ? 'vertical' : 'horizontal';
-    logGameAction('Orientation Changed', {
-      from: selectedOrientation,
-      to: newOrientation,
-      playerId
-    });
+    // logGameAction('Orientation Changed', {
+    //   from: selectedOrientation,
+    //   to: newOrientation,
+    //   playerId
+    // });
     setSelectedOrientation(newOrientation);
   }
 
@@ -505,12 +547,12 @@ export const GameBoard: React.FC = () => {
     setPlacedShips(newPlacedShips);
     
     // Log placement
-    logGameAction('Ship Placed', {
-      ship: draggedShip.name,
-      position: previewCells[0],
-      orientation: selectedOrientation,
-      remainingShips: SHIPS.length - newPlacedShips.length
-    });
+    // logGameAction('Ship Placed', {
+    //   ship: draggedShip.name,
+    //   position: previewCells[0],
+    //   orientation: selectedOrientation,
+    //   remainingShips: SHIPS.length - newPlacedShips.length
+    // });
 
     setDraggedShip(null);
     setPreviewCells([]);
@@ -572,9 +614,16 @@ export const GameBoard: React.FC = () => {
             : 'All ships placed!'
           }
         </Text>
-        <Button size="sm" onClick={toggleOrientation} mb={2}>
-          Orientation: {selectedOrientation}
-        </Button>
+        <Button 
+                size="lg" 
+                onClick={toggleOrientation} 
+                width="200px"
+                colorScheme="blue"
+                variant="outline"
+                _hover={{ bg: isDark ? "blue.800" : "blue.50" }}
+              >
+                {selectedOrientation === 'horizontal' ? '↔️' : '↕️'} {selectedOrientation === 'horizontal' ? 'Horizontal' : 'Vertical'}
+              </Button>
         <Flex
           wrap="wrap"
           gap={4}
@@ -796,7 +845,7 @@ export const GameBoard: React.FC = () => {
                     </>
                   )}
                   <Text 
-                    fontSize={["xs", "sm"]} 
+                    fontSize={(!isMyBoard && cell.isHit) ? ["md", "xl", "2xl"] : ["xs", "sm"]} 
                     color={cell.isHit 
                       ? (cell.isShip ? 'red.500' : isDark ? 'gray.300' : 'gray.500') 
                       : isDark ? 'white' : 'currentColor'
@@ -897,18 +946,73 @@ export const GameBoard: React.FC = () => {
     </Box>
   );
 
+  const renderShipStatus = () => {
+    if (!gameState?.gameStarted || gameState.isPlacingShips) return null;
+
+    return (
+      <VStack 
+        width="100%" 
+        maxW="400px" 
+        spacing={4} 
+        bg={isDark ? "gray.800" : "white"}
+        p={4}
+        borderRadius="lg"
+        boxShadow="md"
+        mt={4}
+      >
+        <Text fontSize="lg" fontWeight="bold" color={isDark ? "white" : "gray.700"}>
+          Enemy Fleet Status
+        </Text>
+        <Table variant="simple" size="sm">
+          <Thead>
+            <Tr>
+              <Th>Ship</Th>
+              <Th>Size</Th>
+              <Th>Status</Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {SHIPS.map(ship => {
+              const isSunk = sunkShips.includes(ship.id);
+              const design = SHIP_DESIGNS[ship.name as keyof typeof SHIP_DESIGNS];
+              return (
+                <Tr key={ship.id}>
+                  <Td>
+                    <HStack>
+                      <Text color={design.color}>{ship.name}</Text>
+                      <Text color={design.color}>
+                        {Array(ship.size).fill(design.middle).join('')}
+                      </Text>
+                    </HStack>
+                  </Td>
+                  <Td isNumeric>{ship.size}</Td>
+                  <Td>
+                    <Badge
+                      colorScheme={isSunk ? 'red' : 'green'}
+                      variant={isDark ? 'solid' : 'subtle'}
+                    >
+                      {isSunk ? '💥 Sunk' : '🌊 Afloat'}
+                    </Badge>
+                  </Td>
+                </Tr>
+              );
+            })}
+          </Tbody>
+        </Table>
+      </VStack>
+    );
+  };
+
   return (
     <Center 
       minH="100vh" 
       bg={isDark ? "gray.900" : "blue.50"}
       bgImage="url('https://www.transparenttextures.com/patterns/navy.png')"
       bgBlendMode="overlay"
-      overflow="hidden"
-      position="fixed"
+      position="absolute"
       w="100%"
-      h="100%"
-      top={0}
-      left={0}
+      overflowY="auto"
+      py={16}
     >
       <VStack 
         spacing={4} 
@@ -917,9 +1021,7 @@ export const GameBoard: React.FC = () => {
         width="100%" 
         maxW="1200px" 
         mx="auto"
-        overflow="auto"
-        h="100%"
-        pb={20}
+        mb={20}
       >
         <IconButton
           aria-label="Toggle color mode"
@@ -1068,16 +1170,6 @@ export const GameBoard: React.FC = () => {
               >
                 Position your fleet for battle!
               </Text>
-              <Button 
-                size="lg" 
-                onClick={toggleOrientation} 
-                width="200px"
-                colorScheme="blue"
-                variant="outline"
-                _hover={{ bg: isDark ? "blue.800" : "blue.50" }}
-              >
-                {selectedOrientation === 'horizontal' ? '↔️' : '↕️'} {selectedOrientation === 'horizontal' ? 'Horizontal' : 'Vertical'}
-              </Button>
             </VStack>
           )}
 
@@ -1113,26 +1205,6 @@ export const GameBoard: React.FC = () => {
 
         <VStack spacing={8} width="100%" align="center">
           <VStack spacing={4} width="100%" align="center">
-            <Text 
-              fontSize={["lg", "xl"]} 
-              fontWeight="bold" 
-              textAlign="center" 
-              color={isDark ? "blue.300" : "blue.600"}
-              textShadow="1px 1px 2px rgba(0,0,0,0.2)"
-            >
-              Your Waters
-              {hasFinishedPlacing && !gameState.gameStarted && (
-                <Badge 
-                  colorScheme="green" 
-                  ml={2}
-                  fontSize="md"
-                  p={1}
-                  borderRadius="md"
-                >
-                  Ready for Battle
-                </Badge>
-              )}
-            </Text>
             <Box
               borderRadius="xl"
               overflow="hidden"
@@ -1146,17 +1218,30 @@ export const GameBoard: React.FC = () => {
             </Box>
           </VStack>
           
+          <Text 
+            fontSize={["lg", "xl"]} 
+            fontWeight="bold"
+            textAlign="center"
+            color={
+              gameState.gameEnded 
+                ? (gameState.winner === playerId ? 'green.400' : 'red.400')
+                : (gameState.currentTurn === playerId ? 'blue.400' : 'gray.400')
+            }
+            textShadow="1px 1px 2px rgba(0,0,0,0.2)"
+          >
+            {gameState.gameEnded
+              ? (gameState.winner === playerId ? '🏆 Victory is yours!' : '💀 Your fleet has been destroyed!')
+              : (gameState.isPlacingShips
+                ? (hasFinishedPlacing 
+                    ? '⏳ Waiting for enemy to position their fleet...'
+                    : '🎯 Position your fleet, Captain!')
+                : gameState.currentTurn === playerId
+                  ? '🎯 Fire at will, Captain!'
+                  : "⏳ Enemy is taking aim...")}
+          </Text>
+          
           {opponent && (
             <VStack spacing={4} width="100%" align="center">
-              <Text 
-                fontSize={["lg", "xl"]} 
-                fontWeight="bold" 
-                textAlign="center" 
-                color={isDark ? "red.300" : "red.600"}
-                textShadow="1px 1px 2px rgba(0,0,0,0.2)"
-              >
-                Enemy Waters
-              </Text>
               <Box
                 borderRadius="xl"
                 overflow="hidden"
@@ -1168,32 +1253,10 @@ export const GameBoard: React.FC = () => {
               >
                 {renderBoard(opponentBoard, false)}
               </Box>
+              {renderShipStatus()}
             </VStack>
           )}
         </VStack>
-
-        <Text 
-          fontSize={["lg", "xl"]} 
-          fontWeight="bold"
-          textAlign="center"
-          color={
-            gameState.gameEnded 
-              ? (gameState.winner === playerId ? 'green.400' : 'red.400')
-              : (gameState.currentTurn === playerId ? 'blue.400' : 'gray.400')
-          }
-          textShadow="1px 1px 2px rgba(0,0,0,0.2)"
-          mt={4}
-        >
-          {gameState.gameEnded
-            ? (gameState.winner === playerId ? '🏆 Victory is yours!' : '💀 Your fleet has been destroyed!')
-            : (gameState.isPlacingShips
-              ? (hasFinishedPlacing 
-                  ? '⏳ Waiting for enemy to position their fleet...'
-                  : '🎯 Position your fleet, Captain!')
-              : gameState.currentTurn === playerId
-                ? '🎯 Fire at will, Captain!'
-                : "⏳ Enemy is taking aim...")}
-        </Text>
       </VStack>
     </Center>
   );

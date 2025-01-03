@@ -53,15 +53,11 @@ interface GameStore {
 }
 
 // Get WebSocket URL from environment variable
-const WS_URL = import.meta.env.VITE_WS_URL;
-console.log('Environment variable VITE_WS_URL:', WS_URL);
-
+const WS_URL = import.meta.env.VITE_BACKEND_URL;
 // Fallback URL if environment variable is not set
 const FALLBACK_URL = `ws://${window.location.hostname}:3001/ws`;
-
 // Use environment variable if available, otherwise use fallback
 const SERVER_URL = WS_URL || FALLBACK_URL;
-console.log('Final WebSocket URL being used:', SERVER_URL);
 
 export const useGameStore = create<GameStore>((set, get) => ({
   // Initial state
