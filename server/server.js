@@ -2,8 +2,35 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const cors = require('cors');
+const winston = require('winston');
+
+// Configure winston logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    })
+  ]
+});
 
 const app = express();
+
+// Get IP from WebSocket request
+const getIpFromRequest = (req) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = forwarded ? forwarded.split(',')[0] : req.socket.remoteAddress;
+  return ip;
+};
 
 // Security middleware
 app.use((req, res, next) => {
@@ -27,6 +54,7 @@ app.use(cors({
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ 
   server,
+  path: '/ws',
   // Allow connections from any origin in development
   verifyClient: process.env.NODE_ENV !== 'production'
     ? () => true
@@ -132,17 +160,27 @@ const getNewlySunkShips = (board, oldBoard) => {
 };
 
 // Handle WebSocket connections
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const clientIp = getIpFromRequest(req);
+  logger.info('New WebSocket connection', { ip: clientIp });
+  
   let username = null;
   let gameId = null;
 
   ws.on('message', (message) => {
     const data = JSON.parse(message);
+    logger.info('Received message', { 
+      type: data.type, 
+      ip: clientIp, 
+      username, 
+      gameId 
+    });
     
     switch (data.type) {
       case 'login':
         username = data.username;
         activeUsers.set(username, ws);
+        logger.info('User logged in', { username, ip: clientIp });
         ws.send(JSON.stringify({ 
           type: 'login_success',
           username
@@ -166,6 +204,7 @@ wss.on('connection', (ws) => {
             }
           });
           gameId = data.gameId;
+          logger.info('New game created', { gameId, username, ip: clientIp });
           ws.send(JSON.stringify({ 
             type: 'joined', 
             playerId: 'player1',
@@ -337,6 +376,7 @@ wss.on('connection', (ws) => {
 
   // Handle disconnection
   ws.on('close', () => {
+    logger.info('Client disconnected', { ip: clientIp, username, gameId });
     if (username) {
       activeUsers.delete(username);
       broadcastLobbyState();
@@ -353,15 +393,28 @@ wss.on('connection', (ws) => {
       broadcastLobbyState();
     }
   });
+
+  // Handle errors
+  ws.on('error', (error) => {
+    logger.error('WebSocket error', { 
+      ip: clientIp, 
+      username, 
+      gameId, 
+      error: error.message 
+    });
+  });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  logger.error('Express error', { 
+    ip: getIpFromRequest(req), 
+    error: err.stack 
+  });
   res.status(500).send('Something broke!');
 });
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  logger.info(`Server is running on port ${PORT}`);
 }); 

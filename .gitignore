@@ -8,8 +8,9 @@
 /coverage
 
 # Production
-/build
-/dist
+web/build
+server/build
+web/dist
 
 # Environment files
 .env
