@@ -10,7 +10,7 @@
 # Production
 web/build
 server/build
-web/dist
+/web/dist
 
 # Environment files
 .env
