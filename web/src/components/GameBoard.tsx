@@ -33,19 +33,6 @@ import {
   MISS_MARKER
 } from '../constants/gameConstants'
 
-// Add animation keyframes
-const hitAnimation = keyframes`
-  0% { transform: scale(0); opacity: 0; }
-  50% { transform: scale(1.2); opacity: 0.8; }
-  100% { transform: scale(1); opacity: 1; }
-`;
-
-const missAnimation = keyframes`
-  0% { transform: scale(0) rotate(0deg); opacity: 0; }
-  50% { transform: scale(1.2) rotate(180deg); opacity: 0.8; }
-  100% { transform: scale(1) rotate(360deg); opacity: 1; }
-`;
-
 const missileAnimation = keyframes`
   0% { 
     transform: translateY(-100vh) scale(0.5);
@@ -62,13 +49,15 @@ const missileAnimation = keyframes`
   100% { 
     transform: translateY(0) scale(1.5);
     opacity: 0;
+    visibility: hidden;
   }
 `;
 
 const explosionAnimation = keyframes`
   0% {
     transform: scale(0);
-    opacity: 1;
+    opacity: 0;
+    visibility: visible;
   }
   50% {
     transform: scale(2);
@@ -77,6 +66,30 @@ const explosionAnimation = keyframes`
   100% {
     transform: scale(3);
     opacity: 0;
+    visibility: hidden;
+  }
+`;
+
+const hitBackgroundAnimation = keyframes`
+  0% {
+    background-color: transparent;
+  }
+  99% {
+    background-color: transparent;
+  }
+  100% {
+    background-color: var(--hit-bg-color);
+  }
+`;
+
+const hitMarkerAnimation = keyframes`
+  0%, 95% { 
+    opacity: 0;
+    transform: scale(0);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
   }
 `;
 
@@ -136,6 +149,14 @@ export const GameBoard: React.FC = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const isDark = colorMode === 'dark';
 
+  type BoardCell = {
+    isShip: boolean;
+    isHit: boolean;
+    shipId?: number;
+  };
+
+  type Board = BoardCell[][];
+
   const [previewCells, setPreviewCells] = useState<{ x: number; y: number }[]>([])
   const [isValidPreview, setIsValidPreview] = useState(true)
   const [selectedOrientation, setSelectedOrientation] = useState<'horizontal' | 'vertical'>('horizontal')
@@ -143,6 +164,8 @@ export const GameBoard: React.FC = () => {
   const [placedShips, setPlacedShips] = useState<number[]>([])
   const [touchStartCoords, setTouchStartCoords] = useState<{ x: number, y: number } | null>(null);
   const [sunkShips, setSunkShips] = useState<number[]>([]);
+  const [hasFinalized, setHasFinalized] = useState(false);
+  const [localBoard, setLocalBoard] = useState<Board | null>(null);
 
   const { 
     username,
@@ -158,35 +181,10 @@ export const GameBoard: React.FC = () => {
 
   const toast = useToast()
 
-  // Add logging function
-  const logGameAction = (action: string, details?: any) => {
-    const timestamp = new Date().toLocaleTimeString();
-    console.log(
-      `%c[${timestamp}] ${action}`,
-      'background: #2D3748; color: #48BB78; padding: 2px 4px; border-radius: 2px; font-weight: bold',
-      details ? details : ''
-    );
-  };
-
-  // // Add initial game state log
-  // useEffect(() => {
-  //   if (gameState) {
-  //     logGameAction('Game State', {
-  //       username,
-  //       playerId,
-  //       opponent,
-  //       isPlacingShips: gameState.isPlacingShips,
-  //       gameStarted: gameState.gameStarted,
-  //       currentTurn: gameState.currentTurn
-  //     });
-  //   }
-  // }, [gameState?.gameStarted, gameState?.currentTurn, opponent]);
-
   // Reset ship placement when game restarts
   useEffect(() => {
     if (gameState?.isPlacingShips && !gameState.gameStarted) {
       setPlacedShips([]);
-      logGameAction('Game Reset', { playerId, username });
     }
   }, [gameState?.isPlacingShips, gameState?.gameStarted]);
 
@@ -194,11 +192,6 @@ export const GameBoard: React.FC = () => {
   useEffect(() => {
     if (gameState?.gameEnded) {
       const isWinner = gameState.winner === playerId;
-      logGameAction('Game Over', { 
-        winner: gameState.winner === playerId ? username : opponent,
-        playerId,
-        isWinner 
-      });
       toast({
         title: isWinner ? 'Victory!' : 'Defeat!',
         description: isWinner 
@@ -214,32 +207,20 @@ export const GameBoard: React.FC = () => {
 
   // Modify hasFinishedPlacing calculation
   const hasFinishedPlacing = placedShips.length === SHIPS.length;
-  
-  // Check if opponent has finished placing ships
-  const currentOpponentBoard = playerId === 'player1' ? gameState?.player2Board : gameState?.player1Board;
-  const opponentShipsCount = currentOpponentBoard?.reduce((count, row) => 
-    count + row.reduce((rowCount, cell) => cell.isShip ? rowCount + 1 : rowCount, 0), 0
-  ) ?? 0;
-  const opponentFinishedPlacing = opponentShipsCount > 0 && !gameState?.isPlacingShips;
 
   // Show waiting message when player has finished but opponent hasn't
   useEffect(() => {
-    if (gameState && hasFinishedPlacing && !opponentFinishedPlacing && !gameState.gameStarted) {
-      logGameAction('Waiting for Opponent', { 
-        playerId,
-        shipsPlaced: SHIPS.length,
-        opponentShipsCount 
-      });
+    if (gameState && hasFinishedPlacing && !hasFinalized && !gameState.gameStarted) {
       toast({
-        title: 'Waiting for opponent',
-        description: 'Your opponent is still placing their ships...',
+        title: 'All Ships Placed!',
+        description: 'Click Finish Placement button when you are ready.',
         status: 'info',
         duration: 3000,
         isClosable: true,
         position: 'top',
       });
     }
-  }, [hasFinishedPlacing, opponentFinishedPlacing, gameState?.gameStarted]);
+  }, [hasFinishedPlacing, gameState?.gameStarted, hasFinalized]);
 
   // Add effect to track sunk ships
   useEffect(() => {
@@ -265,51 +246,133 @@ export const GameBoard: React.FC = () => {
     }
   }, [gameState?.isPlacingShips, gameState?.gameStarted]);
 
-  const handleCellClick = (x: number, y: number) => {
-    // During ship placement phase
-    if (gameState?.isPlacingShips) {
-      // Prevent placing more ships if all ships are placed
-      if (hasFinishedPlacing) return;
+  // Reset states when game restarts
+  useEffect(() => {
+    const currentGameState = gameState;
+    if (!currentGameState) return;
+    
+    // Only reset if we're starting a new game AND we haven't just finalized placement
+    const isNewGame = currentGameState.isPlacingShips && !currentGameState.gameStarted;
+    const shouldReset = isNewGame && !hasFinalized;
 
-      if (!draggedShip || placedShips.includes(draggedShip.id)) return;
+    if (shouldReset) {
+      // Clear stored finalized state
+      localStorage.removeItem('hasFinalized');
+      localStorage.removeItem('finalizedAt');
+      
+      const initialBoard = playerId === 'player1' ? currentGameState.player1Board : currentGameState.player2Board;
+      setLocalBoard(initialBoard.map(row => row.map(cell => ({ ...cell }))));
+      setPlacedShips([]);
+      setHasFinalized(false);
+      setSunkShips([]);
+    }
+  }, [gameState, playerId, hasFinalized]);
 
-      // Calculate preview positions first
-      const previewPositions: { x: number; y: number }[] = [];
-      let isValid = true;
+  // Add effect to restore finalized state if needed
+  useEffect(() => {
+    if (!gameState) return;
 
-      for (let i = 0; i < draggedShip.size; i++) {
-        const previewX = selectedOrientation === 'vertical' ? x + i : x;
-        const previewY = selectedOrientation === 'horizontal' ? y + i : y;
+    // Only try to restore if we're in placement phase and haven't finalized
+    const shouldTryRestore = gameState.isPlacingShips && !hasFinalized && !gameState.gameStarted;
+    
+    if (shouldTryRestore) {
+      const storedFinalized = localStorage.getItem('hasFinalized');
+      const finalizedAt = localStorage.getItem('finalizedAt');
+      
+      if (storedFinalized === 'true' && finalizedAt) {
+        // Only restore if it was stored recently (within last 5 minutes)
+        const storedTime = new Date(finalizedAt).getTime();
+        const now = new Date().getTime();
+        const fiveMinutes = 5 * 60 * 1000;
         
-        if (previewX >= 10 || previewY >= 10) {
-          isValid = false;
-          break;
+        if (now - storedTime < fiveMinutes) {
+          setHasFinalized(true);
+        } else {
+          // Clear old stored state
+          localStorage.removeItem('hasFinalized');
+          localStorage.removeItem('finalizedAt');
         }
+      }
+    }
+  }, [gameState, hasFinalized]);
 
-        previewPositions.push({ x: previewX, y: previewY });
+  const validateShipPlacement = (x: number, y: number, ship: typeof SHIPS[0], board: Board) => {
+    const previewPositions: { x: number; y: number }[] = [];
+    let isValid = true;
+
+    for (let i = 0; i < ship.size; i++) {
+      const previewX = selectedOrientation === 'vertical' ? x + i : x;
+      const previewY = selectedOrientation === 'horizontal' ? y + i : y;
+      
+      if (previewX >= 10 || previewY >= 10) {
+        isValid = false;
+        break;
       }
 
-      if (isValid) {
-        const currentBoard = playerId === 'player1' ? gameState.player1Board : gameState.player2Board;
-        isValid = !previewPositions.some(pos => {
-          if (currentBoard[pos.x][pos.y].isShip) return true;
+      previewPositions.push({ x: previewX, y: previewY });
+    }
 
-          for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-              const adjX = pos.x + dx;
-              const adjY = pos.y + dy;
-              if (
-                adjX >= 0 && adjX < 10 &&
-                adjY >= 0 && adjY < 10 &&
-                currentBoard[adjX][adjY].isShip
-              ) {
-                return true;
-              }
+    if (isValid) {
+      isValid = !previewPositions.some(pos => {
+        if (board[pos.x][pos.y].isShip) return true;
+
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const adjX = pos.x + dx;
+            const adjY = pos.y + dy;
+            if (
+              adjX >= 0 && adjX < 10 &&
+              adjY >= 0 && adjY < 10 &&
+              board[adjX][adjY].isShip
+            ) {
+              return true;
             }
           }
-          return false;
-        });
+        }
+        return false;
+      });
+    }
+
+    return { isValid, previewPositions };
+  };
+
+  const handleCellClick = (x: number, y: number) => {
+    if (!gameState) return;
+
+    // During ship placement phase
+    if (gameState.isPlacingShips) {
+      if (hasFinalized || !localBoard) return;
+
+      // Check if clicking on an existing ship to remove it
+      const clickedCell = localBoard[x][y];
+      if (clickedCell.isShip && clickedCell.shipId && !draggedShip) {
+        // Remove ship logic
+        setPlacedShips(prev => prev.filter(id => id !== clickedCell.shipId));
+        const newBoard = localBoard.map(row => row.map(cell => 
+          cell.shipId === clickedCell.shipId 
+            ? { isShip: false, isHit: false, shipId: undefined }
+            : { ...cell }
+        ));
+        setLocalBoard(newBoard);
+
+        const removedShip = SHIPS.find(ship => ship.id === clickedCell.shipId);
+        if (removedShip) {
+          toast({
+            title: `${removedShip.name} Removed`,
+            description: 'You can now place this ship in a new position.',
+            status: 'info',
+            duration: 2000,
+            isClosable: true,
+            position: 'top',
+          });
+        }
+        return;
       }
+
+      // Only proceed with placement if we have a dragged ship
+      if (!draggedShip || placedShips.includes(draggedShip.id)) return;
+
+      const { isValid, previewPositions } = validateShipPlacement(x, y, draggedShip, localBoard);
 
       if (!isValid) {
         toast({
@@ -323,16 +386,7 @@ export const GameBoard: React.FC = () => {
         return;
       }
 
-      // logGameAction('Placing Ship', {
-      //   ship: draggedShip.name,
-      //   position: { x, y },
-      //   orientation: selectedOrientation,
-      //   playerId
-      // });
-
-      const currentBoard = playerId === 'player1' ? gameState.player1Board : gameState.player2Board;
-      const newBoard = currentBoard.map(row => row.map(cell => ({ ...cell })));
-      
+      const newBoard = localBoard.map(row => row.map(cell => ({ ...cell })));
       previewPositions.forEach(cell => {
         newBoard[cell.x][cell.y] = { 
           isShip: true, 
@@ -341,21 +395,19 @@ export const GameBoard: React.FC = () => {
         };
       });
 
-      placeShip(newBoard);
-      const newPlacedShips = [...placedShips, draggedShip.id];
-      setPlacedShips(newPlacedShips);
+      setLocalBoard(newBoard);
+      setPlacedShips(prev => [...prev, draggedShip.id]);
       setDraggedShip(null);
       setPreviewCells([]);
       return;
     }
 
     // During battle phase
-    if (gameState?.gameStarted && gameState.currentTurn === playerId) {
+    if (gameState.gameStarted && gameState.currentTurn === playerId) {
       const targetBoard = playerId === 'player1' ? gameState.player2Board : gameState.player1Board;
-      const newBoard = targetBoard.map(row => row.map(cell => ({ ...cell })));
       
       // Prevent hitting the same cell twice
-      if (newBoard[x][y].isHit) {
+      if (targetBoard[x][y].isHit) {
         toast({
           title: 'Invalid Move',
           description: 'This cell has already been hit!',
@@ -367,14 +419,9 @@ export const GameBoard: React.FC = () => {
         return;
       }
       
-      // logGameAction('Attack Move', {
-      //   position: { x, y },
-      //   playerId,
-      //   target: opponent
-      // });
-      
-      const isHit = newBoard[x][y].isShip;
-      newBoard[x][y] = { ...newBoard[x][y], isHit: true };
+      const isHit = targetBoard[x][y].isShip;
+      const newBoard = targetBoard.map(row => row.map(cell => ({ ...cell })));
+      newBoard[x][y].isHit = true;
       makeMove(newBoard);
 
       if (isHit) {
@@ -387,7 +434,7 @@ export const GameBoard: React.FC = () => {
           position: 'top',
         });
       }
-    } else if (gameState?.gameStarted) {
+    } else if (gameState.gameStarted) {
       toast({
         title: 'Not your turn',
         description: 'Wait for your opponent to make their move.',
@@ -400,77 +447,32 @@ export const GameBoard: React.FC = () => {
   };
 
   const handleCellHover = (x: number, y: number) => {
-    // Prevent showing preview if all ships are placed
-    if (hasFinishedPlacing || !gameState?.isPlacingShips) {
+    if (!gameState?.isPlacingShips || hasFinalized || !localBoard || !draggedShip || placedShips.includes(draggedShip.id)) {
       setPreviewCells([]);
       return;
     }
 
-    if (!draggedShip || placedShips.includes(draggedShip.id)) {
-      setPreviewCells([]);
-      return;
-    }
-
-    const previewPositions: { x: number; y: number }[] = [];
-    let isValid = true;
-
-    // Calculate preview positions
-    for (let i = 0; i < draggedShip.size; i++) {
-      const previewX = selectedOrientation === 'vertical' ? x + i : x;
-      const previewY = selectedOrientation === 'horizontal' ? y + i : y;
-      
-      if (previewX >= 10 || previewY >= 10) {
-        isValid = false;
-        break;
-      }
-
-      previewPositions.push({ x: previewX, y: previewY });
-    }
-
-    if (isValid) {
-      const currentBoard = playerId === 'player1' ? gameState.player1Board : gameState.player2Board;
-      isValid = !previewPositions.some(pos => {
-        if (currentBoard[pos.x][pos.y].isShip) return true;
-
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            const adjX = pos.x + dx;
-            const adjY = pos.y + dy;
-            if (
-              adjX >= 0 && adjX < 10 &&
-              adjY >= 0 && adjY < 10 &&
-              currentBoard[adjX][adjY].isShip
-            ) {
-              return true;
-            }
-          }
-        }
-        return false;
-      });
-    }
-
+    const { isValid, previewPositions } = validateShipPlacement(x, y, draggedShip, localBoard);
     setIsValidPreview(isValid);
     setPreviewCells(previewPositions);
   };
 
+  const handleDragOver = (x: number, y: number) => (event: React.DragEvent) => {
+    event.preventDefault();
+    handleCellHover(x, y);
+  };
+
   const toggleOrientation = () => {
     const newOrientation = selectedOrientation === 'horizontal' ? 'vertical' : 'horizontal';
-    // logGameAction('Orientation Changed', {
-    //   from: selectedOrientation,
-    //   to: newOrientation,
-    //   playerId
-    // });
     setSelectedOrientation(newOrientation);
   }
 
   const handleLeaveGame = () => {
-    logGameAction('Player Left Game', { playerId, username });
-    disconnect()
+    disconnect();
   }
 
   const handleRestartGame = () => {
-    logGameAction('Game Restart Requested', { playerId, username });
-    restartGame()
+    restartGame();
     toast({
       title: 'Game Restarted',
       description: 'Place your ships to begin a new game!',
@@ -478,69 +480,18 @@ export const GameBoard: React.FC = () => {
       duration: 3000,
       isClosable: true,
       position: 'top',
-    })
+    });
   }
 
   const handleDragStart = (ship: typeof SHIPS[0]) => {
     setDraggedShip(ship);
   };
 
-  const handleDragOver = (x: number, y: number) => (event: React.DragEvent) => {
-    event.preventDefault();
-    if (!draggedShip || placedShips.includes(draggedShip.id)) return;
-
-    const previewPositions: { x: number; y: number }[] = [];
-    let isValid = true;
-
-    for (let i = 0; i < draggedShip.size; i++) {
-      const previewX = selectedOrientation === 'vertical' ? x + i : x;
-      const previewY = selectedOrientation === 'horizontal' ? y + i : y;
-      
-      if (previewX >= 10 || previewY >= 10) {
-        isValid = false;
-        break;
-      }
-
-      previewPositions.push({ x: previewX, y: previewY });
-    }
-
-    if (isValid) {
-      const currentBoard = playerId === 'player1' ? gameState?.player1Board : gameState?.player2Board;
-      if (!currentBoard) return;
-
-      isValid = !previewPositions.some(pos => {
-        if (currentBoard[pos.x][pos.y].isShip) return true;
-
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            const adjX = pos.x + dx;
-            const adjY = pos.y + dy;
-            if (
-              adjX >= 0 && adjX < 10 &&
-              adjY >= 0 && adjY < 10 &&
-              currentBoard[adjX][adjY].isShip
-            ) {
-              return true;
-            }
-          }
-        }
-        return false;
-      });
-    }
-
-    setIsValidPreview(isValid);
-    setPreviewCells(previewPositions);
-  };
-
   const handleDrop = () => (event: React.DragEvent) => {
     event.preventDefault();
-    if (!draggedShip || !isValidPreview || placedShips.includes(draggedShip.id)) return;
+    if (!draggedShip || !isValidPreview || placedShips.includes(draggedShip.id) || !localBoard) return;
 
-    const currentBoard = playerId === 'player1' ? gameState?.player1Board : gameState?.player2Board;
-    if (!currentBoard) return;
-
-    const newBoard = currentBoard.map(row => row.map(cell => ({ ...cell })));
-
+    const newBoard = localBoard.map(row => row.map(cell => ({ ...cell })));
     previewCells.forEach(cell => {
       newBoard[cell.x][cell.y] = {
         isShip: true,
@@ -549,18 +500,8 @@ export const GameBoard: React.FC = () => {
       };
     });
 
-    placeShip(newBoard);
-    const newPlacedShips = [...placedShips, draggedShip.id];
-    setPlacedShips(newPlacedShips);
-    
-    // Log placement
-    // logGameAction('Ship Placed', {
-    //   ship: draggedShip.name,
-    //   position: previewCells[0],
-    //   orientation: selectedOrientation,
-    //   remainingShips: SHIPS.length - newPlacedShips.length
-    // });
-
+    setLocalBoard(newBoard);
+    setPlacedShips(prev => [...prev, draggedShip.id]);
     setDraggedShip(null);
     setPreviewCells([]);
   };
@@ -578,7 +519,7 @@ export const GameBoard: React.FC = () => {
 
   const handleTouchMove = (event: React.TouchEvent) => {
     event.preventDefault();
-    if (!draggedShip || !touchStartCoords) return;
+    if (!draggedShip || !touchStartCoords || !gameState?.isPlacingShips || hasFinalized) return;
 
     const touch = event.touches[0];
     const element = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
@@ -592,7 +533,7 @@ export const GameBoard: React.FC = () => {
 
   const handleTouchEnd = (event: React.TouchEvent) => {
     event.preventDefault();
-    if (!draggedShip || !touchStartCoords) return;
+    if (!draggedShip || !touchStartCoords || !gameState?.isPlacingShips || hasFinalized) return;
 
     const touch = event.changedTouches[0];
     const element = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
@@ -607,30 +548,118 @@ export const GameBoard: React.FC = () => {
     setDraggedShip(null);
   };
 
-  // Modify renderShipContainer
+  // Update finalize placement handler to send the final board
+  const handleFinalizePlacement = () => {
+    if (!gameState || !localBoard) return;
+    
+    // Update all related states atomically
+    setHasFinalized(true);
+    placeShip(localBoard);
+    
+    // Store finalized state in localStorage as backup
+    try {
+      localStorage.setItem('hasFinalized', 'true');
+      localStorage.setItem('finalizedAt', new Date().toISOString());
+    } catch (e) {
+      // Silently handle storage errors
+    }
+    
+    toast({
+      title: 'Ships Placed!',
+      description: 'Waiting for opponent to place their ships...',
+      status: 'info',
+      duration: 3000,
+      isClosable: true,
+      position: 'top',
+    });
+  };
+
+  // Modify the waiting overlay to show only after finalization
+  const renderWaitingOverlay = () => {
+    if (!hasFinalized || !gameState?.isPlacingShips) return null;
+
+    return (
+      <Center
+        position="absolute"
+        top="0"
+        left="0"
+        right="0"
+        bottom="0"
+        bg="blackAlpha.600"
+        borderRadius="lg"
+        flexDirection="column"
+        gap={3}
+        p={4}
+        zIndex={5}
+      >
+        <Box
+          bg={isDark ? "gray.800" : "white"}
+          p={4}
+          borderRadius="md"
+          boxShadow="lg"
+          textAlign="center"
+          border="2px solid"
+          borderColor={isDark ? "blue.400" : "blue.200"}
+        >
+          <Text fontSize="xl" fontWeight="bold" color={isDark ? "blue.300" : "blue.600"} mb={2}>
+            Ships Positioned!
+          </Text>
+          <Text color={isDark ? "gray.300" : "gray.700"} fontSize="md">
+            Waiting for opponent to finish placement...
+          </Text>
+        </Box>
+      </Center>
+    );
+  };
+
+  // Reset finalized state when game restarts
+  useEffect(() => {
+    if (gameState?.isPlacingShips && !gameState.gameStarted) {
+      setHasFinalized(false);
+      setPlacedShips([]);
+      setSunkShips([]);
+    }
+  }, [gameState?.isPlacingShips, gameState?.gameStarted]);
+
+  // Add effect to prevent scrolling during drag
+  useEffect(() => {
+    const preventScroll = (e: TouchEvent) => {
+      if (draggedShip) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('touchmove', preventScroll, { passive: false });
+    return () => {
+      document.removeEventListener('touchmove', preventScroll);
+    };
+  }, [draggedShip]);
+
+  // Modify the ship container to hide after finalization
   const renderShipContainer = () => {
-    if (!gameState?.isPlacingShips || hasFinishedPlacing) return null;
+    if (!gameState?.isPlacingShips || hasFinalized) return null;
 
     const remainingShips = SHIPS.filter(ship => !placedShips.includes(ship.id));
+    const allShipsPlaced = remainingShips.length === 0;
 
     return (
       <VStack spacing={4} width="100%" maxW="400px" mb={6}>
         <Text fontSize="lg" fontWeight="bold" color={isDark ? "white" : "gray.700"}>
-          {remainingShips.length > 0 
+          {!allShipsPlaced 
             ? `Place your ships (${remainingShips.length} remaining)`
-            : 'All ships placed!'
+            : 'All ships placed! Review and click Finish Placement when ready.'
           }
         </Text>
         <Button 
-                size="lg" 
-                onClick={toggleOrientation} 
-                width="200px"
-                colorScheme="blue"
-                variant="outline"
-                _hover={{ bg: isDark ? "blue.800" : "blue.50" }}
-              >
-                {selectedOrientation === 'horizontal' ? '↔️' : '↕️'} {selectedOrientation === 'horizontal' ? 'Horizontal' : 'Vertical'}
-              </Button>
+          size="lg" 
+          onClick={toggleOrientation} 
+          width="200px"
+          colorScheme="blue"
+          variant="outline"
+          _hover={{ bg: isDark ? "blue.800" : "blue.50" }}
+        >
+          {selectedOrientation === 'horizontal' ? '↔️' : '↕️'} {selectedOrientation === 'horizontal' ? 'Horizontal' : 'Vertical'}
+        </Button>
         <Flex
           wrap="wrap"
           gap={4}
@@ -653,32 +682,59 @@ export const GameBoard: React.FC = () => {
             />
           ))}
         </Flex>
+        {allShipsPlaced && !hasFinalized && (
+          <Button
+            colorScheme="green"
+            size="lg"
+            width="full"
+            onClick={handleFinalizePlacement}
+            _hover={{
+              transform: "translateY(-2px)",
+              boxShadow: "lg"
+            }}
+          >
+            ✅ Finish Placement
+          </Button>
+        )}
       </VStack>
     );
   };
 
-  // Add effect to prevent scrolling during drag
-  useEffect(() => {
-    const preventScroll = (e: TouchEvent) => {
-      if (draggedShip) {
-        e.preventDefault();
-      }
-    };
+  // Update the game status text
+  const getGameStatusText = () => {
+    // We can assert gameState is non-null since we check at component level
+    const state = gameState!;
 
-    document.addEventListener('touchmove', preventScroll, { passive: false });
-    return () => {
-      document.removeEventListener('touchmove', preventScroll);
-    };
-  }, [draggedShip]);
+    if (state.gameEnded) {
+      return state.winner === playerId 
+        ? '🏆 Victory is yours!' 
+        : '💀 Your fleet has been destroyed!';
+    }
+
+    if (state.isPlacingShips) {
+      if (hasFinalized) {
+        return '⏳ Waiting for opponent to finish placement...';
+      }
+      return hasFinishedPlacing
+        ? '✅ All ships placed! Click Finish Placement when ready.'
+        : '🎯 Position your fleet!';
+    }
+
+    return state.currentTurn === playerId
+      ? '🎯 Fire at will, Captain!'
+      : "⏳ Enemy is taking aim...";
+  };
 
   if (!gameState) return null;
 
-  const myBoard = playerId === 'player1' ? gameState.player1Board : gameState.player2Board;
+  const myBoard = gameState.isPlacingShips 
+    ? (localBoard || (playerId === 'player1' ? gameState.player1Board : gameState.player2Board))
+    : (playerId === 'player1' ? gameState.player1Board : gameState.player2Board);
   const opponentBoard = playerId === 'player1' ? gameState.player2Board : gameState.player1Board;
   const currentBoard = gameState.isPlacingShips ? myBoard : opponentBoard;
 
   const isPreviewCell = (x: number, y: number, isMyBoard: boolean) => 
-    isMyBoard && gameState.isPlacingShips && previewCells.some(cell => cell.x === x && cell.y === y)
+    isMyBoard && gameState.isPlacingShips && previewCells.some(cell => cell.x === x && cell.y === y);
 
   const getShipDesign = (shipId?: number) => {
     if (!shipId) return null
@@ -723,12 +779,20 @@ export const GameBoard: React.FC = () => {
     return isHorizontalShip(x, y) ? 'middle' : 'vmiddle';
   };
 
-  const getCellContent = (x: number, y: number, cell: { isShip: boolean; isHit: boolean; shipId?: number }) => {
+  const getCellContent = (x: number, y: number, cell: { isShip: boolean; isHit: boolean; shipId?: number }, isMyBoard: boolean) => {
+    // For new hits, don't show content until animations complete
+    if (cell.isHit && isMyBoard) {
+      return '';
+    }
+
+    // For already hit cells or opponent's board
     if (cell.isHit) {
       return cell.isShip ? HIT_MARKER : MISS_MARKER;
     }
 
-    if (cell.isShip && !gameState.isPlacingShips) {
+    // Only show ships on my board during placement or if they're hit on opponent's board
+    const showShip = cell.isShip && (isMyBoard || cell.isHit);
+    if (showShip && !gameState.isPlacingShips) {
       const design = getShipDesign(cell.shipId);
       const partType = getShipPartType(x, y, cell);
       if (design && partType) {
@@ -737,7 +801,8 @@ export const GameBoard: React.FC = () => {
       return '■';
     }
 
-    if (isPreviewCell(x, y, true)) {
+    // Show preview during placement
+    if (isPreviewCell(x, y, isMyBoard)) {
       if (!draggedShip) return '';
       
       const design = SHIP_DESIGNS[draggedShip.name as keyof typeof SHIP_DESIGNS];
@@ -745,213 +810,155 @@ export const GameBoard: React.FC = () => {
       
       if (previewCells.length === 1) return design.single;
       
-      if (selectedOrientation === 'horizontal') {
-        if (index === 0) return design.start;
-        if (index === previewCells.length - 1) return design.end;
-        return design.middle;
-      } else {
-        if (index === 0) return design.vstart;
-        if (index === previewCells.length - 1) return design.vend;
-        return design.vmiddle;
-      }
+      return selectedOrientation === 'horizontal'
+        ? (index === 0 ? design.start : index === previewCells.length - 1 ? design.end : design.middle)
+        : (index === 0 ? design.vstart : index === previewCells.length - 1 ? design.vend : design.vmiddle);
     }
 
     return '';
   };
 
-  const renderBoard = (board: typeof currentBoard, isMyBoard: boolean) => (
-    <Box position="relative" width="100%">
-      <Grid
-        templateColumns="auto repeat(10, 1fr)"
-        templateRows="auto repeat(10, 1fr)"
-        gap={0.5}
-        bg={isDark ? "gray.600" : "gray.100"}
-        p={2}
-        borderRadius="lg"
-        opacity={gameState.gameEnded ? 0.8 : 1}
-        pointerEvents={gameState.gameEnded ? "none" : "auto"}
-        maxWidth="100vw"
-      >
-        {/* Column headers */}
-        <GridItem />
-        {COLS.map(col => (
-          <GridItem key={col} textAlign="center">
-            <Text fontSize={["xs", "sm"]} fontWeight="bold" color={isDark ? "white" : "inherit"}>{col}</Text>
-          </GridItem>
-        ))}
+  const renderBoard = (board: typeof gameState.player1Board, isMyBoard: boolean) => {
+    const isGameEnded = gameState.gameEnded;
+    const canInteract = !isGameEnded && (
+      (isMyBoard && gameState.isPlacingShips && !hasFinalized) ||
+      (!isMyBoard && gameState.gameStarted && gameState.currentTurn === playerId)
+    );
 
-        {/* Game grid */}
-        {ROWS.map((row, x) => (
-          <React.Fragment key={row}>
-            <GridItem>
-              <Text fontSize={["xs", "sm"]} fontWeight="bold" color={isDark ? "white" : "inherit"}>{row}</Text>
+    return (
+      <Box position="relative" width="100%">
+        <Grid
+          templateColumns="auto repeat(10, 1fr)"
+          templateRows="auto repeat(10, 1fr)"
+          gap={0.5}
+          bg={isDark ? "gray.600" : "gray.100"}
+          p={2}
+          borderRadius="lg"
+          opacity={isGameEnded ? 0.8 : 1}
+          pointerEvents={canInteract ? "auto" : "none"}
+          maxWidth="100vw"
+        >
+          {/* Column headers */}
+          <GridItem />
+          {COLS.map(col => (
+            <GridItem key={col} textAlign="center">
+              <Text fontSize={["xs", "sm"]} fontWeight="bold" color={isDark ? "white" : "inherit"}>{col}</Text>
             </GridItem>
-            {COLS.map((_, y) => {
-              const cell = board[x][y];
-              const isPreview = isPreviewCell(x, y, isMyBoard);
-              const design = cell.shipId ? getShipDesign(cell.shipId) : null;
-              const showShip = cell.isShip && (isMyBoard || cell.isHit);
-              const isNewHit = cell.isHit && isMyBoard;
-              
-              return (
-                <GridItem
-                  key={`${x}-${y}`}
-                  position="relative"
-                  bg={isPreview 
-                    ? (isValidPreview ? 'green.200' : 'red.200') 
-                    : isMyBoard && showShip
-                      ? design?.color || 'blue.500'
-                      : cell.isHit
-                        ? (cell.isShip ? 'red.100' : isDark ? 'gray.500' : 'gray.100')
-                        : isDark ? 'gray.700' : 'white'
-                  }
-                  w={["25px", "30px", "35px"]}
-                  h={["25px", "30px", "35px"]}
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="center"
-                  cursor={(!isMyBoard && gameState.gameStarted) || (isMyBoard && gameState.isPlacingShips) ? "pointer" : "default"}
-                  onClick={() => (!isMyBoard && gameState.gameStarted) ? handleCellClick(x, y) : null}
-                  onDragOver={isMyBoard && gameState.isPlacingShips ? (e) => handleDragOver(x, y)(e) : undefined}
-                  onDrop={isMyBoard && gameState.isPlacingShips ? (e) => handleDrop()(e) : undefined}
-                  onDragLeave={isMyBoard && gameState.isPlacingShips ? handleDragLeave : undefined}
-                  data-coords={`${x},${y}`}
-                  borderWidth={1}
-                  borderColor={isDark ? "gray.600" : "gray.200"}
-                  transition="all 0.2s"
-                  _hover={(!isMyBoard && gameState.gameStarted) || (isMyBoard && gameState.isPlacingShips) ? { bg: isDark ? 'blue.700' : 'blue.100' } : {}}
-                >
-                  {isNewHit && (
-                    <>
-                      <Box
-                        position="absolute"
-                        top="50%"
-                        left="50%"
-                        transform="translate(-50%, -50%)"
-                        fontSize="xl"
-                        color="red.500"
-                        animation={`${missileAnimation} 0.5s ease-in`}
-                        zIndex={2}
-                      >
-                        🚀
-                      </Box>
-                      {cell.isShip && (
-                        <Box
-                          position="absolute"
-                          top="50%"
-                          left="50%"
-                          transform="translate(-50%, -50%)"
-                          fontSize="2xl"
-                          color="orange.500"
-                          animation={`${explosionAnimation} 0.5s ease-out 0.5s`}
-                          zIndex={3}
-                        >
-                          💥
-                        </Box>
-                      )}
-                    </>
-                  )}
-                  <Text 
-                    fontSize={(!isMyBoard && cell.isHit) ? ["md", "xl", "2xl"] : ["xs", "sm"]} 
-                    color={cell.isHit 
-                      ? (cell.isShip ? 'red.500' : isDark ? 'gray.300' : 'gray.500') 
-                      : isDark ? 'white' : 'currentColor'
+          ))}
+
+          {/* Game grid */}
+          {ROWS.map((row, x) => (
+            <React.Fragment key={row}>
+              <GridItem>
+                <Text fontSize={["xs", "sm"]} fontWeight="bold" color={isDark ? "white" : "inherit"}>{row}</Text>
+              </GridItem>
+              {COLS.map((_, y) => {
+                const cell = board[x][y];
+                const isPreview = isPreviewCell(x, y, isMyBoard);
+                const design = cell.shipId ? getShipDesign(cell.shipId) : null;
+                const showShip = cell.isShip && (isMyBoard || cell.isHit);
+                const isNewHit = cell.isHit && isMyBoard;
+                
+                return (
+                  <GridItem
+                    key={`${x}-${y}`}
+                    position="relative"
+                    bg={isPreview 
+                      ? (isValidPreview ? 'green.200' : 'red.200') 
+                      : showShip && isMyBoard
+                        ? design?.color || 'blue.500'
+                        : cell.isHit
+                          ? (cell.isShip ? 'red.100' : isDark ? 'gray.500' : 'gray.100')
+                          : isDark ? 'gray.700' : 'white'
                     }
-                    animation={cell.isHit ? `${cell.isShip ? hitAnimation : missAnimation} 0.5s ease-out` : undefined}
+                    w={["25px", "30px", "35px"]}
+                    h={["25px", "30px", "35px"]}
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
+                    cursor={canInteract ? "pointer" : "default"}
+                    onClick={() => canInteract && handleCellClick(x, y)}
+                    onDragOver={isMyBoard && gameState.isPlacingShips ? (e) => handleDragOver(x, y)(e) : undefined}
+                    onDrop={isMyBoard && gameState.isPlacingShips ? (e) => handleDrop()(e) : undefined}
+                    onDragLeave={isMyBoard && gameState.isPlacingShips ? handleDragLeave : undefined}
+                    data-coords={`${x},${y}`}
+                    borderWidth={1}
+                    borderColor={isDark ? "gray.600" : "gray.200"}
+                    transition="all 0.2s"
+                    _hover={canInteract ? { bg: isDark ? 'blue.700' : 'blue.100' } : {}}
                     sx={{
+                      '--hit-bg-color': cell.isShip ? 'var(--chakra-colors-red-100)' : isDark ? 'var(--chakra-colors-gray-500)' : 'var(--chakra-colors-gray-100)',
+                      animation: isNewHit ? `${hitBackgroundAnimation} 0.95s ease-in forwards` : undefined,
+                      backgroundColor: isNewHit ? 'transparent' : undefined,
                       '@media (prefers-reduced-motion: reduce)': {
                         animation: 'none'
                       }
                     }}
                   >
-                    {cell.isHit 
-                      ? (cell.isShip ? HIT_MARKER : MISS_MARKER)
-                      : showShip && design
-                        ? design[getShipPartType(x, y, cell) || 'single']
-                        : isPreview
-                          ? getCellContent(x, y, cell)
-                          : ''}
-                  </Text>
-                </GridItem>
-              );
-            })}
-          </React.Fragment>
-        ))}
-      </Grid>
-      {/* Waiting overlay */}
-      {hasFinishedPlacing && isMyBoard && !gameState.gameStarted && !opponentFinishedPlacing && gameState.isPlacingShips && (
-        <Center
-          position="absolute"
-          top="0"
-          left="0"
-          right="0"
-          bottom="0"
-          bg="blackAlpha.600"
-          borderRadius="lg"
-          flexDirection="column"
-          gap={3}
-          p={4}
-        >
-          <Box
-            bg="white"
-            p={4}
-            borderRadius="md"
-            boxShadow="lg"
-            textAlign="center"
-          >
-            <Text fontSize="xl" fontWeight="bold" color="blue.600" mb={2}>
-              Ships Placed!
-            </Text>
-            <Text color="gray.700" fontSize="md">
-              Waiting for opponent to place their ships...
-            </Text>
-          </Box>
-        </Center>
-      )}
-      {/* Game over overlay */}
-      {gameState.gameEnded && (
-        <Center
-          position="absolute"
-          top="0"
-          left="0"
-          right="0"
-          bottom="0"
-          bg="blackAlpha.600"
-          borderRadius="lg"
-          flexDirection="column"
-          gap={3}
-          p={4}
-          zIndex={5}
-        >
-          <Box
-            bg="white"
-            p={4}
-            borderRadius="md"
-            boxShadow="lg"
-            textAlign="center"
-          >
-            <Text 
-              fontSize="xl" 
-              fontWeight="bold" 
-              color={gameState.winner === playerId ? "green.500" : "red.500"}
-              mb={2}
-            >
-              {isMyBoard 
-                ? (gameState.winner === playerId ? "Victory!" : "Defeat!")
-                : (gameState.winner === playerId ? "You sank all enemy ships!" : "All your ships were sunk!")}
-            </Text>
-            <Text color="gray.700" fontSize="md">
-              {isMyBoard
-                ? "Game Over - Click Play Again to start a new game"
-                : gameState.winner === playerId 
-                  ? "Your strategy led you to victory!"
-                  : "Better luck next time!"}
-            </Text>
-          </Box>
-        </Center>
-      )}
-    </Box>
-  );
+                    {isNewHit ? (
+                      <>
+                        <Box
+                          position="absolute"
+                          top="50%"
+                          left="50%"
+                          transform="translate(-50%, -50%)"
+                          fontSize="xl"
+                          color="red.500"
+                          animation={`${missileAnimation} 0.5s ease-in forwards`}
+                          zIndex={2}
+                        >
+                          🚀
+                        </Box>
+                        {cell.isShip && (
+                          <Box
+                            position="absolute"
+                            top="50%"
+                            left="50%"
+                            transform="translate(-50%, -50%)"
+                            fontSize="2xl"
+                            color="orange.500"
+                            animation={`${explosionAnimation} 0.5s ease-out 0.45s forwards`}
+                            opacity={0}
+                            visibility="hidden"
+                            zIndex={3}
+                          >
+                            💥
+                          </Box>
+                        )}
+                        <Text 
+                          fontSize={["md", "xl", "2xl"]} 
+                          color={cell.isShip ? 'red.500' : isDark ? 'gray.300' : 'gray.500'}
+                          animation={`${hitMarkerAnimation} 1s ease-out forwards`}
+                          opacity={0}
+                          sx={{
+                            '@media (prefers-reduced-motion: reduce)': {
+                              animation: 'none'
+                            }
+                          }}
+                        >
+                          {cell.isShip ? HIT_MARKER : MISS_MARKER}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text 
+                        fontSize={(!isMyBoard && cell.isHit) ? ["md", "xl", "2xl"] : ["xs", "sm"]} 
+                        color={cell.isHit 
+                          ? (cell.isShip ? 'red.500' : isDark ? 'gray.300' : 'gray.500') 
+                          : isDark ? 'white' : 'currentColor'
+                        }
+                      >
+                        {getCellContent(x, y, cell, isMyBoard)}
+                      </Text>
+                    )}
+                  </GridItem>
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </Grid>
+      </Box>
+    );
+  };
 
   const renderShipStatus = () => {
     if (!gameState?.gameStarted || gameState.isPlacingShips) return null;
@@ -1167,7 +1174,7 @@ export const GameBoard: React.FC = () => {
             )}
           </VStack>
 
-          {gameState.isPlacingShips && !hasFinishedPlacing && (
+          {gameState.isPlacingShips && !hasFinalized && (
             <VStack spacing={4} width="100%" maxW="400px">
               <Text 
                 fontSize={["md", "lg"]} 
@@ -1220,8 +1227,10 @@ export const GameBoard: React.FC = () => {
               borderColor={isDark ? "blue.400" : "blue.200"}
               p={2}
               bg={isDark ? "gray.800" : "white"}
+              position="relative"
             >
               {renderBoard(myBoard, true)}
+              {renderWaitingOverlay()}
             </Box>
           </VStack>
           
@@ -1236,15 +1245,7 @@ export const GameBoard: React.FC = () => {
             }
             textShadow="1px 1px 2px rgba(0,0,0,0.2)"
           >
-            {gameState.gameEnded
-              ? (gameState.winner === playerId ? '🏆 Victory is yours!' : '💀 Your fleet has been destroyed!')
-              : (gameState.isPlacingShips
-                ? (hasFinishedPlacing 
-                    ? '⏳ Waiting for enemy to position their fleet...'
-                    : '🎯 Position your fleet, Captain!')
-                : gameState.currentTurn === playerId
-                  ? '🎯 Fire at will, Captain!'
-                  : "⏳ Enemy is taking aim...")}
+            {getGameStatusText()}
           </Text>
           
           {opponent && (
