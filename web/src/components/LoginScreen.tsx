@@ -32,6 +32,7 @@ export const LoginScreen: React.FC = () => {
         status: 'error',
         duration: 3000,
         isClosable: true,
+        position: 'top',
       });
       return;
     }

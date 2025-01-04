@@ -207,6 +207,7 @@ export const GameBoard: React.FC = () => {
         status: isWinner ? 'success' : 'error',
         duration: 5000,
         isClosable: true,
+        position: 'top',
       });
     }
   }, [gameState?.gameEnded]);
@@ -235,6 +236,7 @@ export const GameBoard: React.FC = () => {
         status: 'info',
         duration: 3000,
         isClosable: true,
+        position: 'top',
       });
     }
   }, [hasFinishedPlacing, opponentFinishedPlacing, gameState?.gameStarted]);
@@ -316,6 +318,7 @@ export const GameBoard: React.FC = () => {
           status: 'warning',
           duration: 2000,
           isClosable: true,
+          position: 'top',
         });
         return;
       }
@@ -359,6 +362,7 @@ export const GameBoard: React.FC = () => {
           status: 'warning',
           duration: 2000,
           isClosable: true,
+          position: 'top',
         });
         return;
       }
@@ -380,6 +384,7 @@ export const GameBoard: React.FC = () => {
           status: 'success',
           duration: 2000,
           isClosable: true,
+          position: 'top',
         });
       }
     } else if (gameState?.gameStarted) {
@@ -389,6 +394,7 @@ export const GameBoard: React.FC = () => {
         status: 'warning',
         duration: 2000,
         isClosable: true,
+        position: 'top',
       });
     }
   };
@@ -471,6 +477,7 @@ export const GameBoard: React.FC = () => {
       status: 'info',
       duration: 3000,
       isClosable: true,
+      position: 'top',
     })
   }
 
